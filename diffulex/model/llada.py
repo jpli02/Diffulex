@@ -3,10 +3,10 @@ import torch
 import torch.nn as nn
 import torch.distributed as dist
 
+from diffulex.attention import Attention
 from diffulex.layer.layernorm import RMSNorm
 from diffulex.layer.activation import SiluAndMul
 from diffulex.layer.rotary_embedding import get_rope
-from diffulex.layer.attention.attention_v5 import Attention
 from diffulex.model.auto_model import AutoModelForDiffusionLM
 from diffulex.model.config.llada.configuration_llada import LLaDAConfig
 from diffulex.layer.linear import RowParallelLinear, ColumnParallelLinear
@@ -189,7 +189,7 @@ class LLaDAModel(nn.Module):
     ) -> None:
         super().__init__()
         self.config = config
-        self.transformer = nn.ModuleDict(
+        self.transformer = nn.Moduledict(
             dict(
                 wte=VocabParallelEmbedding(
                     config.embedding_size or config.vocab_size, config.d_model
@@ -200,7 +200,7 @@ class LLaDAModel(nn.Module):
         )
         
         blocks = [LLaDABlock(config) for _ in range(config.n_layers)]
-        self.transformer.update({"blocks": nn.ModuleList(blocks)})
+        self.transformer.update({"blocks": nn.Modulelist(blocks)})
         
         if not (self.config.alibi or self.config.rope):
             self.transformer.update(

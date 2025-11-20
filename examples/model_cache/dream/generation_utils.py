@@ -16,7 +16,7 @@
 import warnings
 import copy
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, dict, Optional, Tuple, Union
 
 import torch
 import torch.distributions as dists
@@ -152,7 +152,7 @@ class DreamGenerationMixin:
         expand_size: int = 1,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.LongTensor] = None
-    ) -> Tuple[torch.LongTensor, Dict[str, Any]]:
+    ) -> Tuple[torch.LongTensor, dict[str, Any]]:
         """Expands tensors from [batch_size, ...] to [batch_size * expand_size, ...]"""
         # Do not call torch.repeat_interleave if expand_size is 1 because it clones
         # the input tensor and thus requires more memory although no change is applied
@@ -216,7 +216,7 @@ class DreamGenerationMixin:
         return generation_config
 
     def _prepare_generation_config(
-        self, generation_config: Optional[DreamGenerationConfig], **kwargs: Dict
+        self, generation_config: Optional[DreamGenerationConfig], **kwargs: dict
     ) -> DreamGenerationConfig:
         """
         Prepares the base generation config, then applies any generation configuration options from kwargs. This

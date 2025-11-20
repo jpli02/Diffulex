@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
-
 from diffulex.config import Config
 from diffulex.engine.scheduler import AutoScheduler, SchedulerBase
-from diffulex.engine.sequence import (
-    SequenceBase,
-    SequenceForDiffusionLM,
-    SequenceStatus,
-)
+from diffulex.engine.sequence import SequenceBase, SequenceStatus
+from .sequence import D2FSequence
 from diffulex.layer.sampler import SampleOutputForDiffusionLM
 
 
@@ -25,11 +20,11 @@ class D2FScheduler(SchedulerBase):
     def is_finished(self) -> bool:
         return not self.waiting and not self.running
 
-    def add(self, seq: SequenceForDiffusionLM) -> None:
+    def add(self, seq: D2FSequence) -> None:
         self.waiting.append(seq)
 
-    def schedule(self) -> Tuple[List[SequenceBase], bool]:
-        scheduled: List[SequenceBase] = []
+    def schedule(self) -> tuple[list[SequenceBase], bool]:
+        scheduled: list[SequenceBase] = []
         num_seqs = 0
         num_batched_tokens = 0
         while self.waiting and num_seqs < self.max_num_seqs:
@@ -92,17 +87,17 @@ class D2FScheduler(SchedulerBase):
         self.running.extendleft(reversed(scheduled))
         return scheduled, False
 
-    def preempt(self, seq: SequenceForDiffusionLM) -> None:
+    def preempt(self, seq: D2FSequence) -> None:
         seq.status = SequenceStatus.WAITING
         self.block_manager.free(seq)
         self.waiting.appendleft(seq)
 
     def postprocess(
         self,
-        seqs: List[SequenceForDiffusionLM],
+        seqs: list[D2FSequence],
         sample_output: SampleOutputForDiffusionLM,
-    ) -> Dict[int, int]:
-        n_diff_steps: Dict[int, int] = {}
+    ) -> dict[int, int]:
+        n_diff_steps: dict[int, int] = {}
         for seq in seqs:
             seq.reset_new_tokens()
             seq_id = str(seq.seq_id)

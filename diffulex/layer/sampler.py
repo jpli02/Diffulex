@@ -4,12 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dists
 
-from typing import List, Dict
 from dataclasses import dataclass
-from easydict import EasyDict as edict
+from easydict import Easydict as edict
 
 from diffulex.config import Config
-from diffulex.utils.context import get_context_diffusion_lm
+from diffulex.attention import fetch_attn_metadata
 
 
 class SamplerForDiffusionLM(nn.Module):
@@ -71,9 +70,9 @@ class SamplerForDiffusionLM(nn.Module):
 
 @dataclass
 class SampleOutputForDiffusionLM:
-    true_local_ids_map: Dict[str, Dict[str, List[int]]]
-    accepted_ids_map: Dict[str, List[int]]
-    sampled_tokens_map: Dict[str, Dict[str, List[int]]]
+    true_local_ids_map: dict[str, dict[str, list[int]]]
+    accepted_ids_map: dict[str, list[int]]
+    sampled_tokens_map: dict[str, dict[str, list[int]]]
     
     def __post_init__(self):
         self.accepted_ids_map = edict(self.accepted_ids_map)
@@ -97,7 +96,7 @@ class SamplerForDream(SamplerForDiffusionLM):
     
     def forward(self, logits: torch.Tensor, temperatures: torch.Tensor,
                 top_p=None, top_k=None, margin_confidence=False, neg_entropy=False):
-        context = get_context_diffusion_lm()
+        context = fetch_attn_metadata()
         seqs = context.seqs
         split_logits = torch.split(logits, [len(seq) for seq in seqs] if context.is_prefill else context.seq_lens, dim=0)
         accepted_ids_map = {}
@@ -154,7 +153,7 @@ class SamplerForDream(SamplerForDiffusionLM):
 class SamplerForLLaDA(SamplerForDiffusionLM):
     def forward(self, logits: torch.Tensor, temperatures: torch.Tensor,
                 top_p=None, top_k=None, margin_confidence=False, neg_entropy=False):
-        context = get_context_diffusion_lm()
+        context = fetch_attn_metadata()
         seqs = context.seqs
         split_logits = torch.split(logits, [len(seq) for seq in seqs] if context.is_prefill else context.seq_lens, dim=0)
         accepted_ids_map = {}

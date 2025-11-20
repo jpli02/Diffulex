@@ -3,7 +3,7 @@ import gc
 import json
 import time  # add time module
 from datetime import timedelta
-from typing import List, Optional, Tuple, Type, TypeVar, Union, Dict
+from typing import List, Optional, Tuple, Type, TypeVar, Union, dict
 import torch
 import torch.nn.functional as F
 import torch.distributions as dists
@@ -543,7 +543,7 @@ class LLaDALoRA(TemplateLM):
         return cls(**args, **args2)
 
     def apply_chat_template(
-        self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True
+        self, chat_history: List[dict[str, str]], add_generation_prompt: bool = True
     ) -> str:
         """
         Method to apply a chat template to a list of chat history between user and model.

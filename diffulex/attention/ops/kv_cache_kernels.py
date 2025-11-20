@@ -6,8 +6,8 @@ import triton.language as tl
 from typing import Tuple
 from einops import rearrange
 
-from diffulex.legacy.utils.context import ContextForDiffusionLM 
-from diffulex.legacy.engine.sequence import SequenceForDiffusionLM
+from diffulex.utils.context import ContextForDiffusionLM 
+from diffulex.strategy.d2f.sequence import D2FSequence
 
 @triton.jit
 def store_kvcache_kernel_causal_lm(

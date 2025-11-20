@@ -2,13 +2,14 @@ import xxhash
 
 import numpy as np
 
+from typing import Callable
 from collections import deque
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Deque, Iterable, List, Set
 
 from diffulex.config import Config
 from diffulex.engine.sequence import SequenceBase
+from diffulex.engine.strategy_registry import DiffulexStrategyRegistry
 
 
 @dataclass
@@ -16,7 +17,7 @@ class Block:
     block_id: int
     ref_count: int = 0
     hash: int = -1
-    token_ids: List[int] = field(default_factory=list)
+    token_ids: list[int] = field(default_factory=list)
 
     def update(self, hash: int, token_ids: list[int]):
         self.hash = hash
@@ -28,24 +29,20 @@ class Block:
         self.token_ids = []
 
 
-BlockManagerFactory = Callable[[Config], "BlockManagerBase"]
-_NOT_PROVIDED = object()
-
-
-class BlockManagerBase(ABC):
+class KVCacheManagerBase(ABC):
     def __init__(self, config: Config):
         num_blocks = config.num_kvcache_blocks
         block_size = config.kvcache_block_size
         assert num_blocks > 0
         self.config = config
         self.block_size = block_size
-        self.blocks: List[Block] = [Block(block_id=i) for i in range(num_blocks)]
-        self.hash_to_block_id: Dict[int, int] = dict()
-        self.free_block_ids: Deque[int] = deque(range(num_blocks))
-        self.used_block_ids: Set[int] = set()
+        self.blocks: list[Block] = [Block(block_id=i) for i in range(num_blocks)]
+        self.hash_to_block_id: dict[int, int] = dict()
+        self.free_block_ids: deque[int] = deque(range(num_blocks))
+        self.used_block_ids: set[int] = set()
 
     @classmethod
-    def compute_hash(cls, token_ids: List[int], prefix: int = -1):
+    def compute_hash(cls, token_ids: list[int], prefix: int = -1):
         h = xxhash.xxh64()
         if prefix != -1:
             h.update(prefix.to_bytes(8, "little"))
@@ -112,58 +109,16 @@ class BlockManagerBase(ABC):
         pass
 
 
-class AutoBlockManager:
+KVCacheManagerFactory = Callable[[Config], "KVCacheManagerBase"]
+
+
+class AutoKVCacheManager(DiffulexStrategyRegistry):
     """Registry-driven factory for block manager implementations."""
 
-    _BLOCK_MANAGER_MAPPING: Dict[str, BlockManagerFactory] = {}
-    _DEFAULT_KEY = "__default__"
-
     @classmethod
-    def register(
-        cls,
-        strategy_name: str,
-        factory: BlockManagerFactory | object = _NOT_PROVIDED,
-        *,
-        aliases: Iterable[str] = (),
-        is_default: bool = False,
-        exist_ok: bool = False,
-    ):
-        if not isinstance(strategy_name, str) or not strategy_name:
-            raise ValueError("strategy_name must be a non-empty string.")
-        if isinstance(aliases, str):
-            raise TypeError("aliases must be an iterable of strings, not a single string.")
-
-        def decorator(factory_fn: BlockManagerFactory):
-            cls._register(strategy_name, factory_fn, exist_ok=exist_ok)
-            for alias in dict.fromkeys(aliases):
-                if not isinstance(alias, str) or not alias:
-                    raise ValueError("aliases must contain non-empty strings.")
-                cls._register(alias, factory_fn, exist_ok=exist_ok)
-            if is_default:
-                cls._register(cls._DEFAULT_KEY, factory_fn, exist_ok=True)
-            return factory_fn
-
-        if factory is _NOT_PROVIDED:
-            return decorator
-        return decorator(factory)
-
-    @classmethod
-    def _register(cls, key: str, factory: BlockManagerFactory, *, exist_ok: bool) -> None:
-        if not exist_ok and key in cls._BLOCK_MANAGER_MAPPING and cls._BLOCK_MANAGER_MAPPING[key] is not factory:
-            raise ValueError(f"Block manager '{key}' is already registered.")
-        cls._BLOCK_MANAGER_MAPPING[key] = factory
-
-    @classmethod
-    def unregister(cls, strategy_name: str) -> None:
-        cls._BLOCK_MANAGER_MAPPING.pop(strategy_name, None)
-
-    @classmethod
-    def available_block_managers(cls) -> tuple[str, ...]:
-        return tuple(sorted(k for k in cls._BLOCK_MANAGER_MAPPING if k != cls._DEFAULT_KEY))
-
-    @classmethod
-    def from_config(cls, config: Config) -> BlockManagerBase:
-        candidates: List[str] = []
+    def from_config(cls, config: Config) -> KVCacheManagerBase:
+        cls._MODULE_MAPPING: dict[str, KVCacheManagerFactory]
+        candidates: list[str] = []
         for attr in ("decoding_strategy", "model_type"):
             value = getattr(config, attr, None)
             if isinstance(value, str) and value:
@@ -171,11 +126,11 @@ class AutoBlockManager:
         candidates.append(cls._DEFAULT_KEY)
 
         for key in candidates:
-            factory = cls._BLOCK_MANAGER_MAPPING.get(key)
+            factory = cls._MODULE_MAPPING.get(key)
             if factory is not None:
                 return factory(config)
 
-        available = ", ".join(cls.available_block_managers()) or "<none>"
+        available = ", ".join(cls.available_modules()) or "<none>"
         raise ValueError(
             "No block manager registered for decoding_strategy="
             f"'{getattr(config, 'decoding_strategy', None)}' or model_type="
