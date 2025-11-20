@@ -3,10 +3,10 @@ import torch
 import torch.nn as nn
 import torch.distributed as dist
 
+from diffulex.attention import Attention
 from diffulex.layer.layernorm import RMSNorm
 from diffulex.layer.activation import SiluAndMul
 from diffulex.layer.rotary_embedding import get_rope
-from diffulex.layer.attention.attention_v5 import Attention
 from diffulex.model.auto_model import AutoModelForDiffusionLM
 from diffulex.model.config.dream.configuration_dream import DreamConfig
 from diffulex.layer.linear import RowParallelLinear, ColumnParallelLinear
@@ -189,7 +189,7 @@ class DreamModel(nn.Module):
     ) -> None:
         super().__init__()
         self.embed_tokens = VocabParallelEmbedding(config.vocab_size, config.hidden_size)
-        self.layers = nn.ModuleList([DreamDecoderLayer(config) 
+        self.layers = nn.Modulelist([DreamDecoderLayer(config) 
                                      for _ in range(config.num_hidden_layers)])
         self.norm = DreamRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 

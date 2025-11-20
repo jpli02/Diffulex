@@ -2,22 +2,19 @@ import atexit
 
 import torch.multiprocessing as mp
 
-from typing import List
 from tqdm.auto import tqdm
 from time import perf_counter
 from dataclasses import fields
 from transformers import AutoTokenizer
 
-import diffulex.strategy  # noqa: F401
-
 from diffulex.config import Config
 from diffulex.sampling_params import SamplingParams
-from diffulex.engine.sequence import SequenceForDiffusionLM
+from diffulex.engine.sequence import AutoSequence
 from diffulex.engine.scheduler import AutoScheduler, SchedulerBase
 from diffulex.engine.model_runner import AutoModelRunner
 
 
-class LLMEngine:
+class DiffulexTPWorker:
     def __init__(self, model, **kwargs):
         config_fields = {field.name for field in fields(Config)}
         config_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
@@ -58,11 +55,10 @@ class LLMEngine:
             except Exception:
                 pass
 
-    def add_request(self, prompt: str | List[int], sampling_params: SamplingParams):
+    def add_request(self, prompt: str | list[int], sampling_params: SamplingParams):
         if isinstance(prompt, str):
             prompt = self.tokenizer.encode(prompt)
-            
-        seq = SequenceForDiffusionLM(prompt, sampling_params, config=self.config)
+        seq = AutoSequence.create(self.config, prompt, sampling_params)
         seq.block_size = self.config.kvcache_block_size
         self.scheduler.add(seq)
         # Return seq_id so caller can build a stable mapping
@@ -83,10 +79,10 @@ class LLMEngine:
 
     def generate(
         self,
-        prompts: List[str] | List[List[int]],
-        sampling_params: SamplingParams | List[SamplingParams],
+        prompts: list[str] | list[list[int]],
+        sampling_params: SamplingParams | list[SamplingParams],
         use_tqdm: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         if use_tqdm:
             pbar = tqdm(total=len(prompts), desc="Generating", dynamic_ncols=True)
         if not isinstance(sampling_params, list):

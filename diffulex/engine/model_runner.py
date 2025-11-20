@@ -3,23 +3,21 @@ import pickle
 
 import torch.distributed as dist
 
-from typing import Callable, Dict, Iterable, List
+from typing import Callable
 from abc import ABC, abstractmethod
 from multiprocessing.synchronize import Event
 from multiprocessing.shared_memory import SharedMemory
 
 from diffulex.config import Config
+from diffulex.layer.sampler import AutoSampler
 from diffulex.engine.sequence import SequenceBase
 from diffulex.model.auto_model import AutoModelForDiffusionLM
-from diffulex.layer.sampler import AutoSampler
-
-RunnerFactory = Callable[[Config, int, Event | List[Event]], "ModelRunnerBase"]
-_NOT_PROVIDED = object()
+from diffulex.engine.strategy_registry import DiffulexStrategyRegistry
 
 
 class ModelRunnerBase(ABC):
     """Base class for model runners supporting different model types."""
-    def __init__(self, config: Config, rank: int, event: Event | List[Event]):
+    def __init__(self, config: Config, rank: int, event: Event | list[Event]):
         self.config = config
         self.model_type = config.model_type
         hf_config = config.hf_config
@@ -130,23 +128,23 @@ class ModelRunnerBase(ABC):
     def allocate_kv_cache(self):
         pass
 
-    def prepare_block_tables(self, seqs: List[SequenceBase]):
+    def prepare_block_tables(self, seqs: list[SequenceBase]):
         max_len = max(len(seq.block_table) for seq in seqs)
         block_tables = [seq.block_table + [-1] * (max_len - len(seq.block_table)) for seq in seqs]
         block_tables = torch.tensor(block_tables, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         return block_tables
 
     @abstractmethod
-    def prepare_prefill(self, seqs: List[SequenceBase]):
+    def prepare_prefill(self, seqs: list[SequenceBase]):
         """Model-specific prefill preparation."""
         pass
 
     @abstractmethod
-    def prepare_decode(self, seqs: List[SequenceBase]):
+    def prepare_decode(self, seqs: list[SequenceBase]):
         """Model-specific decode preparation."""
         pass
 
-    def prepare_sample(self, seqs: List[SequenceBase]):
+    def prepare_sample(self, seqs: list[SequenceBase]):
         temperatures = []
         for seq in seqs:
             temperatures.append(seq.temperature)
@@ -160,7 +158,7 @@ class ModelRunnerBase(ABC):
         pass
 
     @abstractmethod
-    def run(self, seqs: List[SequenceBase], is_prefill: bool) -> List[int]:
+    def run(self, seqs: list[SequenceBase], is_prefill: bool) -> list[int]:
         """Main inference pipeline."""
         pass
 
@@ -169,9 +167,12 @@ class ModelRunnerBase(ABC):
     def capture_cudagraph(self):
         """Model-specific CUDA graph capture."""
         pass
+    
+
+RunnerFactory = Callable[[Config, int, Event | list[Event]], "ModelRunnerBase"]
 
 
-class AutoModelRunner:
+class AutoModelRunner(DiffulexStrategyRegistry):
     """Registry and factory that selects a ModelRunner implementation based on the configured decoding strategy.
 
         Example:
@@ -182,55 +183,10 @@ class AutoModelRunner:
         This allows `LLMEngine` to instantiate the appropriate runner using `Config.decoding_strategy`.
     """
 
-    _RUNNER_MAPPING: Dict[str, RunnerFactory] = {}
-    _DEFAULT_KEY = "__default__"
-
     @classmethod
-    def register(
-        cls,
-        strategy_name: str,
-        runner: RunnerFactory | object = _NOT_PROVIDED,
-        *,
-        aliases: Iterable[str] = (),
-        is_default: bool = False,
-        exist_ok: bool = False,
-    ):
-        if not isinstance(strategy_name, str) or not strategy_name:
-            raise ValueError("strategy_name must be a non-empty string.")
-        if isinstance(aliases, str):
-            raise TypeError("aliases must be an iterable of strings, not a single string.")
-
-        def decorator(factory: RunnerFactory):
-            cls._register(strategy_name, factory, exist_ok=exist_ok)
-            for alias in dict.fromkeys(aliases):
-                if not isinstance(alias, str) or not alias:
-                    raise ValueError("aliases must contain non-empty strings.")
-                cls._register(alias, factory, exist_ok=exist_ok)
-            if is_default:
-                cls._register(cls._DEFAULT_KEY, factory, exist_ok=True)
-            return factory
-
-        if runner is _NOT_PROVIDED:
-            return decorator
-        return decorator(runner)
-
-    @classmethod
-    def _register(cls, key: str, factory: RunnerFactory, *, exist_ok: bool) -> None:
-        if not exist_ok and key in cls._RUNNER_MAPPING and cls._RUNNER_MAPPING[key] is not factory:
-            raise ValueError(f"Model runner '{key}' is already registered.")
-        cls._RUNNER_MAPPING[key] = factory
-
-    @classmethod
-    def unregister(cls, strategy_name: str) -> None:
-        cls._RUNNER_MAPPING.pop(strategy_name, None)
-
-    @classmethod
-    def available_runners(cls) -> tuple[str, ...]:
-        return tuple(sorted(k for k in cls._RUNNER_MAPPING if k != cls._DEFAULT_KEY))
-
-    @classmethod
-    def from_config(cls, config: Config, rank: int, event: Event | List[Event]):
-        candidates: List[str] = []
+    def from_config(cls, config: Config, rank: int, event: Event | list[Event]):
+        cls._MODULE_MAPPING: dict[str, RunnerFactory]
+        candidates: list[str] = []
         for attr in ("decoding_strategy", "model_type"):
             value = getattr(config, attr, None)
             if isinstance(value, str) and value:
@@ -238,11 +194,11 @@ class AutoModelRunner:
         candidates.append(cls._DEFAULT_KEY)
 
         for key in candidates:
-            factory = cls._RUNNER_MAPPING.get(key)
+            factory = cls._MODULE_MAPPING.get(key)
             if factory is not None:
                 return factory(config, rank, event)
 
-        available = ", ".join(cls.available_runners()) or "<none>"
+        available = ", ".join(cls.available_modules()) or "<none>"
         raise ValueError(
             "No model runner registered for decoding_strategy="
             f"'{getattr(config, 'decoding_strategy', None)}' or model_type="

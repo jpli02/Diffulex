@@ -7,11 +7,11 @@ import faulthandler
 
 import multiprocessing as mp
 
-from typing import List, Any
+from typing import list, Any
 from multiprocessing.connection import wait as mp_wait
 
 from diffulex.config import Config
-from diffulex.engine.llm_engine import LLMEngine
+from diffulex.engine.tp_worker import DiffulexTPWorker
 from diffulex.sampling_params import SamplingParams
 
 
@@ -52,7 +52,7 @@ def _dp_child_entry(config: Config, dp_idx: int, local_devices: list[int], conn)
         )
         setattr(cfg, "device_start", 0)
 
-        engine = LLMEngine(cfg.model, **{k: getattr(cfg, k) for k in cfg.__dataclass_fields__.keys() if k != "model"})
+        engine = DiffulexTPWorker(cfg.model, **{k: getattr(cfg, k) for k in cfg.__dataclass_fields__.keys() if k != "model"})
 
         while True:
             msg = conn.recv()
@@ -93,7 +93,7 @@ def _dp_child_entry(config: Config, dp_idx: int, local_devices: list[int], conn)
             pass
 
 
-class DPEngine:
+class DiffulexDPWorker:
     """Data-parallel wrapper that runs N independent TP groups as child processes and aggregates results."""
     def __init__(self, model, **kwargs):
         config_fields = {f for f in Config.__dataclass_fields__.keys()}
@@ -103,8 +103,8 @@ class DPEngine:
         assert self.dp_size > 1, "Use LLMEngine directly when data_parallel_size == 1"
 
         ctx = mp.get_context("spawn")
-        self.conns: List[Any] = []
-        self.ps: List[mp.Process] = []
+        self.conns: list[Any] = []
+        self.ps: list[mp.Process] = []
         # Topology check and mapping
         base_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
         if base_visible:
@@ -169,7 +169,7 @@ class DPEngine:
                     pass
                 p.join(timeout=5)
 
-    def add_request(self, prompt: str | List[int], sampling_params: SamplingParams):
+    def add_request(self, prompt: str | list[int], sampling_params: SamplingParams):
         target = self._rr
         self._rr = (self._rr + 1) % self.dp_size
         local_id = self._ask(target, "add_request", prompt, sampling_params)
@@ -210,7 +210,7 @@ class DPEngine:
     def is_finished(self):
         return all(self._ask(i, "is_finished") for i in range(self.dp_size))
 
-    def generate(self, prompts: List[str] | List[List[int]], sampling_params: SamplingParams | List[SamplingParams], use_tqdm: bool = True):
+    def generate(self, prompts: list[str] | list[list[int]], sampling_params: SamplingParams | list[SamplingParams], use_tqdm: bool = True):
         """Load-balanced generate with random shuffling and stable order restoration.
         - Randomly shuffle inputs to balance load across DP replicas.
         - Partition shuffled list evenly among replicas.

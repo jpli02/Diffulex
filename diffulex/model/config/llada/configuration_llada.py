@@ -11,9 +11,9 @@ from glob import glob
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
+    dict,
     Iterable,
-    List,
+    list,
     Optional,
     Tuple,
     Type,
