@@ -360,7 +360,6 @@ class D2FModelRunner(ModelRunnerBase):
             seq_lens_ts=seq_lens_ts,
             kv_cache_layout=self.config.kv_cache_layout,
             need_kv_cache_store=need_kv_cache_store,
-            d2f_pp=True,
         )
         return input_ids_tensor, positions_tensor
 
