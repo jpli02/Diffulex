@@ -161,22 +161,14 @@ class BDModelRunner(ModelRunnerBase):
         slot_mapping: list[int] = []
         block_tables = None
         context_lens: list[int] = []
-        seq_lens: list[int] = []
 
         for seq in seqs:
-            seq.next_diffusion_step(is_prefill=True)
+            seq.init_diffusion_blocks()
 
             total_seqlen = len(seq)
             input_ids.extend(seq[seq.cached_num_tokens:])
             positions.extend(range(seq.cached_num_tokens, total_seqlen))
-            seq_lens.append(total_seqlen)
             context_lens.append(0)
-            assert len(input_ids) == len(positions), (
-                "prepare_prefill(diffusion): len(input_ids) {len_ids} != len(positions) {len_pos}".format(
-                    len_ids=len(input_ids),
-                    len_pos=len(positions),
-                )
-            )
 
             seqlen_q = total_seqlen - seq.cached_num_tokens
             seqlen_k = total_seqlen
@@ -188,40 +180,29 @@ class BDModelRunner(ModelRunnerBase):
 
             if not seq.block_table:
                 continue
-            for i in range(0, seq.num_prompt_blocks):
+            has_padding_mask = seq.pad_prefix_len > 0
+            for i in range(0, seq.num_prefix_blocks):
                 if seq.block_cache_missed[i]:
-                    start = seq.block_table[i] * self.block_size
-                    if i != seq.num_prompt_blocks - 1:
-                        end = start + self.block_size
+                    if has_padding_mask and i == seq.num_prefix_blocks - 1:
+                        slot_mapping.extend([-1] * self.block_size)
                     else:
-                        end = start + seq.last_block_prompt_num_tokens
-                    slot_mapping.extend(range(start, end))
+                        start = seq.block_table[i] * self.block_size
+                        if i != seq.num_prefix_blocks - 1:
+                            end = start + self.block_size
+                        else:
+                            end = start + seq.prefix_last_block_num_tokens
+                        slot_mapping.extend(range(start, end))
                 else:
                     slot_mapping.extend([-1] * self.block_size)
-            slot_mapping.extend([-1] * seq.diffusion_block_size)
 
         block_tables = self.prepare_block_tables(seqs)
 
         input_ids_tensor = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions_tensor = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
-        seq_lens_ts = torch.tensor(seq_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         context_lens_tensor = torch.tensor(context_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_q_tensor = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_k_tensor = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         slot_mapping_tensor = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
-
-        assert cu_seqlens_q_tensor[-1].item() == input_ids_tensor.numel(), (
-            "prepare_prefill(diffusion): cu_seqlens_q[-1]={cq} != num_tokens={nt}".format(
-                cq=cu_seqlens_q_tensor[-1].item(),
-                nt=input_ids_tensor.numel(),
-            )
-        )
-        assert cu_seqlens_k_tensor[-1].item() == sum(seq_lens), (
-            "prepare_prefill(diffusion): cu_seqlens_k[-1]={ck} != sum(seq_lens)={sl}".format(
-                ck=cu_seqlens_k_tensor[-1].item(),
-                sl=sum(seq_lens),
-            )
-        )
 
         set_bd_attn_metadata(
             True,
@@ -232,10 +213,8 @@ class BDModelRunner(ModelRunnerBase):
             slot_mapping=slot_mapping_tensor,
             context_lens=context_lens_tensor,
             block_tables=block_tables,
-            seqs=seqs,
+            diffusion_block_size=self.diffusion_block_size,
             kv_cache_layout=self.config.kv_cache_layout,
-            seq_lens=seq_lens,
-            seq_lens_ts=seq_lens_ts,
         )
         return input_ids_tensor, positions_tensor
 
@@ -246,101 +225,37 @@ class BDModelRunner(ModelRunnerBase):
         cu_seqlens_k = [0]
         slot_mapping: list[int] = []
         context_lens: list[int] = []
-        seq_lens: list[int] = []
-        seq_id_to_queue_id: dict[int, int] = {}
         need_kv_cache_store = False
         max_seqlen_q = 0
         max_seqlen_k = 0
 
-        for seq_idx_in_queue, seq in enumerate(seqs):
-            seq_id = seq.seq_id
-            seq_id_to_queue_id[seq_id] = seq_idx_in_queue
+        for seq in seqs:
             seq.next_diffusion_step()
+            
             cur_input_ids, cur_positions, cur_context_len = seq.diffusion_decoding_inputs()
 
-            seq_lens.append(len(cur_input_ids))
             input_ids.extend(cur_input_ids)
             positions.extend(cur_positions)
             context_lens.append(cur_context_len)
 
-            total_seqlen = len(seq)
-            seqlen_q = total_seqlen - seq.cached_num_tokens
-            seqlen_k = total_seqlen
+            seqlen = len(seq)
+            seqlen_q = self.diffusion_block_size
+            seqlen_k = seqlen
             max_seqlen_q = max(seqlen_q, max_seqlen_q)
             max_seqlen_k = max(seqlen_k, max_seqlen_k)
             cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)
             cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)
 
-            mem_block_to_diffusion_blocks_map = seq.mem_block_to_diffusion_blocks_map
-            context_len = context_lens[seq_id_to_queue_id[seq_id]]
-            for mem_block_idx in range(0, seq.num_blocks):
-                start_idx = mem_block_idx * seq.block_size
-                end_idx = start_idx + seq.block_size
-                cur_map = mem_block_to_diffusion_blocks_map[mem_block_idx]
-                is_last_block = False
-                meet_active_block = False
-                while start_idx < end_idx and not is_last_block and not meet_active_block:
-                    local_start_idx = lambda: start_idx % seq.block_size
-                    diffusion_block = seq.diffusion_blocks[cur_map[local_start_idx()]]
-                    if diffusion_block.block_id == 0 and diffusion_block.cursor != start_idx:
-                        diffusion_block.cursor = start_idx
-                    if cur_map[local_start_idx()] == seq.num_diffusion_blocks - 1:
-                        is_last_block = True
-
-                    def get_step(diff_blk, begin_idx):
-                        remaining = diff_blk.remaining_length(begin_idx)
-                        if remaining + local_start_idx() <= seq.block_size:
-                            return remaining
-                        return seq.block_size - local_start_idx()
-
-                    if diffusion_block.is_in_cache:
-                        step = get_step(diffusion_block, start_idx)
-                        diffusion_block.cursor += step
-                        start_idx += step
-                    elif diffusion_block.is_to_cache:
-                        step = get_step(diffusion_block, start_idx)
-                        diffusion_block.cursor += step
-                        cur_diffusion_block_start = 0
-                        cur_diffusion_block_end = step
-                        start_idx += step
-                        mem_block_start = (
-                            seq.block_table[mem_block_idx] * self.block_size
-                            + context_len % seq.block_size
-                        )
-                        context_len += step
-                        slot_mapping.extend(
-                            range(
-                                mem_block_start + cur_diffusion_block_start,
-                                mem_block_start + cur_diffusion_block_end,
-                            )
-                        )
-                        need_kv_cache_store = True
-                    elif diffusion_block.is_active:
-                        meet_active_block = True
-
-                if meet_active_block:
-                    active = seq.active_blocks
-                    first_active_idx = next((i for i, v in enumerate(active) if v), None)
-                    if first_active_idx is not None:
-                        num_blocks_to_pad = len(active) - first_active_idx
-                        slot_mapping.extend([-1] * (num_blocks_to_pad * seq.diffusion_block_size))
-                    break
-            assert len(input_ids) == len(positions), (
-                "Input IDs length {len_ids} does not match positions length {len_pos}".format(
-                    len_ids=len(input_ids),
-                    len_pos=len(positions),
-                )
-            )
-            assert len(input_ids) == len(slot_mapping), (
-                "Input IDs length {len_ids} does not match slot mapping length {len_slot}".format(
-                    len_ids=len(input_ids),
-                    len_slot=len(slot_mapping),
-                )
-            )
-
+            if seq.diffusion_blocks[-1].is_active:
+                slot_mapping.extend([-1] * self.diffusion_block_size)
+            elif seq.diffusion_blocks[-1].is_to_cache:
+                for i in range(0, seq.num_blocks_in_active_diffusion_block):
+                    start = seq.block_table[i] * self.block_size
+                    end = start + self.block_size
+                    slot_mapping.extend(range(start, end))
+                
         input_ids_tensor = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions_tensor = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
-        seq_lens_ts = torch.tensor(seq_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_q_tensor = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_k_tensor = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         slot_mapping_tensor = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
@@ -355,12 +270,9 @@ class BDModelRunner(ModelRunnerBase):
             max_seqlen_q=max_seqlen_q,
             max_seqlen_k=max_seqlen_k,
             block_tables=block_tables,
-            seqs=seqs,
-            seq_lens=seq_lens,
-            seq_lens_ts=seq_lens_ts,
+            diffusion_block_size=self.diffusion_block_size,
             kv_cache_layout=self.config.kv_cache_layout,
             need_kv_cache_store=need_kv_cache_store,
-            d2f_pp=True,
         )
         return input_ids_tensor, positions_tensor
 
@@ -382,23 +294,6 @@ class BDModelRunner(ModelRunnerBase):
         graph_vars["block_tables"][:bs, : context.block_tables.size(1)] = context.block_tables
         graph.replay()
         return self.model.compute_logits(graph_vars["outputs"][:bs])
-
-    @torch.inference_mode()
-    def run_verbose(self, seqs: list[SequenceBase], is_prefill: bool) -> list[int]:
-        print("= =" * 20)
-        print(f"Running {'prefill' if is_prefill else 'decode'} for {len(seqs)} sequences on rank {self.rank}")
-        start = time.time()
-        input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
-        temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
-        print(f"Prepared input in {time.time() - start:.2f} seconds")
-        start = time.time()
-        logits = self.run_model(input_ids, positions, is_prefill)
-        print(f"Ran model in {time.time() - start:.2f} seconds")
-        start = time.time()
-        sample_output = self.sampler(logits, temperatures) if self.rank == 0 else None
-        print(f"Sampled tokens in {time.time() - start:.2f} seconds")
-        reset_bd_attn_metadata()
-        return sample_output
 
     def run(self, seqs: list[SequenceBase], is_prefill: bool) -> list[int]:
         input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
