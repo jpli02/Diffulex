@@ -5,7 +5,8 @@ from __future__ import annotations
 from . import dream  # noqa: F401
 from . import llada  # noqa: F401
 from . import fast_dllm_v2  # noqa: F401
+from . import sdar  # noqa: F401
 
-__all__ = ["dream", "llada", "fast_dllm_v2"]
+__all__ = ["dream", "llada", "fast_dllm_v2", "sdar"]
 
 from .auto_model import AutoModelForDiffusionLM
