@@ -7,7 +7,8 @@ import tilelang.testing
 import torch.nn.functional as F
 from einops import rearrange
 
-from diffulex_kernel.python.dllm_flash_attn import dllm_flash_attn_decode_kernel
+# from diffulex_kernel.python.dllm_flash_attn import dllm_flash_attn_decode_kernel
+from diffulex_kernel.python.dllm_flash_attn import dllm_flash_attn_decode_kernel_legacy as dllm_flash_attn_decode_kernel
 
 
 def naive_sdpa_with_kvcache(
