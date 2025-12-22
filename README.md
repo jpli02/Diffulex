@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="imgs/logo_lr.png" width="300">
+    <img src="assets/imgs/diffulex.png" width="300">
 </p>
 
 # Diffulex: Flexible Diffusion LLM Inference Engine
