@@ -29,6 +29,10 @@ fi
 cd docs
 make html
 
+# Create .nojekyll file to disable Jekyll processing on GitHub Pages
+touch _build/html/.nojekyll
+echo ".nojekyll file created to disable Jekyll"
+
 # Copy CNAME file if it exists (for GitHub Pages custom domain)
 if [ -f "CNAME" ]; then
     cp CNAME _build/html/
