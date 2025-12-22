@@ -8,7 +8,7 @@ from datasets import load_dataset
 from viztracer import VizTracer
 from transformers import AutoTokenizer
 
-from diffulex_legacy import LLM, SamplingParams
+from diffulex.legacy import LLM, SamplingParams
 
 
 def summarize_profiling(csv_path: str) -> dict:
@@ -38,12 +38,12 @@ def summarize_profiling(csv_path: str) -> dict:
 if __name__ == "__main__":
     WEIGHT_DIR = "/data1/ckpts"
     DATA_DIR = "/data1/LargeData"
-    model = f"{WEIGHT_DIR}/GSAI-ML/llada-8b-instruct"
+    model = f"{WEIGHT_DIR}/Dream-org/Dream-v0-Base-7B"
     LLM = LLM(
         model, 
-        lora_path=f"{WEIGHT_DIR}/SJTU-Deng-Lab/D2F_LLaDA_Instruct_8B_Lora",
+        lora_path=f"{WEIGHT_DIR}/SJTU-Deng-Lab/D2F_Dream_Base_7B_Lora",
         use_lora=True,
-        model_name="llada", 
+        model_name="dream", 
         model_type="diffusion_lm", 
         enforce_eager=True, 
         data_parallel_size=1,
@@ -55,6 +55,7 @@ if __name__ == "__main__":
         accept_threshold=0.95,
         complete_threshold=0.9,
         add_new_block_threshold=0.1,
+        kvcache_block_size=32,
         kv_cache_layout="unified"
     )
     tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)

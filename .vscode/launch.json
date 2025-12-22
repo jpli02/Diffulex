@@ -21,7 +21,7 @@
         },
         {
             "name": "PyDbg: `Dream` Accelerate Launch Debug",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
             "module": "accelerate.commands.launch",
             "args": [

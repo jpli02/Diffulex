@@ -17,7 +17,7 @@ def summarize_profiling(csv_path: str) -> dict:
     total_nums = {}
     avgs = {}
     with open(csv_path, 'r', newline='') as f:
-        reader = csv.DictReader(f)
+        reader = csv.dictReader(f)
         for row in reader:
             for k, v in row.items():
                 try:
@@ -86,6 +86,6 @@ if __name__ == "__main__":
           f"Avg TPS: {sum(len(o['token_ids']) for o in outputs) / (e - s):.2f} tok/s.\n"
           f"AVG Number of Diffusion Steps: {sum(o['n_diff_steps'] for o in outputs) / len(outputs):.2f}\n",
           "=*=" * 30)
-    for idx, o in enumerate(outputs):
-        print("\n", "=*=" * 30)
-        print(f"[Prompt {idx} Result] \n{prompts[idx] + "\n-----<Start-of-Response>-----\n" + o['text']}\n")
+    # for idx, o in enumerate(outputs):
+    #     print("\n", "=*=" * 30)
+    #     print(f"[Prompt {idx} Result] \n{prompts[idx] + "\n-----<Start-of-Response>-----\n" + o['text']}\n")
