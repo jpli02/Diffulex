@@ -6,11 +6,11 @@
     "configurations": [
     
     
-        
-
+    
+    
         {
             "name": "Python Debugger: Current File",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
@@ -53,7 +53,7 @@
         },
         {
             "name": "PyDbg: `diffulex` Qwen3",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_qwen_dvllm.py",
             "console": "integratedTerminal",
@@ -64,7 +64,7 @@
         },
         {
             "name": "PyDbg: `diffulex` Dream `HumanEval`",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_dream_dvllm_human_eval.py",
             "console": "integratedTerminal",
@@ -76,7 +76,7 @@
         },
         {
             "name": "PyDbg: `diffulex` Dream `GSM8K`",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_dream_dvllm_gsm8k.py",
             "console": "integratedTerminal",
@@ -87,8 +87,20 @@
             }
         },
         {
+            "name": "PyDbg: `diffulex` Fast-DLLM-V2 `GSM8K`",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/test_fastdllmv2_diffulex_gsm8k.py",
+            "console": "integratedTerminal",
+            "env": {
+                // "TORCHINDUCTOR_DISABLE": "1",
+                // "TRITON_INTERPRET": "1",
+                // "CUDA_VISIBLE_DEVICES": "0,1"
+            }
+        },
+        {
             "name": "PyDbg: `diffulex` LLaDA `HumanEval`",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_llada_dvllm_human_eval.py",
             "console": "integratedTerminal",
@@ -100,7 +112,7 @@
         },
         {
             "name": "PyDbg: `diffulex` kernel func `load_kvcache_kernel`",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_dllm_kv_cache_load.py",
             "console": "integratedTerminal",
@@ -111,7 +123,7 @@
         },
         {
             "name": "PyDbg: `diffulex` kernel func `chunked_prefill_paged_decode`",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_dllm_decoding_kernel.py",
             "console": "integratedTerminal",
@@ -122,7 +134,7 @@
         },
         {
             "name": "PyDbg: `diffulex` kernel func `causal_lm_decode_attention_fwd`",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_causal_lm_decoding_kernel.py",
             "console": "integratedTerminal",
@@ -133,7 +145,7 @@
         },
         {
             "name": "PyDbg: `diffulex` kernel func `store_kvcache_kernel_diffusion_lm`",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/test_dllm_kv_cache_store.py",
             "console": "integratedTerminal",
